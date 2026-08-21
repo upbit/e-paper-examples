@@ -1,7 +1,8 @@
 # e-paper-examples
 
-ESP32-S3 驱动 2.13" 墨水屏（SSD1675A / GDEH0213B72）的最简化演示。上电后跑一次自检：
-屏幕全刷显示一张分辨率标定图，同时板载 RGB 灯白色呼吸 3 秒，然后屏幕进入深度睡眠。
+ESP32-S3 驱动 2.13" 墨水屏（SSD1675A / GDEH0213B72）的最简化演示。上电后先跑一次自检
+（屏幕全刷标定图 + 板载 RGB 灯白色呼吸 3 秒），然后进入 WiFi 流程：没配过网就开配网热点、
+屏幕提示怎么连；配过就直接连上并把 IP 显示在屏上，同时提供一个静态网页服务。
 墨水屏断电保图，画面会一直留在屏上。
 
 ## 硬件
@@ -64,13 +65,99 @@ I (2795) epd: hibernated
 I (3764) main: self-test done (screen refreshed, LED 3000ms)
 ```
 
+## WiFi 配网
+
+凭据存在 NVS 里、运行时配置，**换 WiFi 环境不需要重新编译**。
+
+### 首次上电（未配置过）
+
+设备开一个**开放热点**（无密码），屏幕上显示热点名和访问地址：
+
+```
+┌──────────────────────────────────────┐
+│ WiFi SETUP - connect to hotspot      │
+│ 1. Join this WiFi:                   │
+│      ESP32-ePaper-CE9819             │
+│ 2. Open in browser:                  │
+│       http://192.168.4.1             │
+│         no password needed           │
+└──────────────────────────────────────┘
+```
+
+热点名后缀取 SoftAP MAC 的后 3 字节，多台设备不会撞名。用手机连上它，浏览器打开
+`http://192.168.4.1`，就是配网页：可以从扫描列表里点选网络（带信号强度和加密标识），
+也可以手动输入隐藏 SSID。
+
+填好密码点「保存并连接」后，设备**先实际连一次再落盘**：
+
+- 密码错 → 页面立刻报错（"wrong password"），热点不断，可以马上重填
+- 连上了 → 页面提示成功 → 写入 NVS → 自动重启进 STA 模式
+
+### 配置之后
+
+重启后直接连保存的网络，屏幕显示拿到的 IP：
+
+```
+┌──────────────────────────────────────┐
+│ WiFi CONNECTED                       │
+│ Open in browser:                     │
+│        192.168.66.183                │
+│ SSID: MyHome_5G                      │
+│    hold BOOT 3s to reconfigure       │
+└──────────────────────────────────────┘
+```
+
+访问这个 IP 就是 `www/` 下的静态页面（设备状态页）。
+
+30 秒内没连上会显示失败原因并提示按键重置，但**后台仍在退避重试**（1s→2s→4s→8s→15s→30s），
+连上后会自动刷新成上面的成功画面。这里刻意不做"连不上就退回热点"——避免路由器
+重启期间设备自己跑掉。
+
+### 重新配网
+
+两种方式，任选：
+
+- **长按 BOOT 按钮（GPIO0）3 秒** — 硬件兜底，连不上网、打不开页面时也能恢复
+- **状态页上的「清除 WiFi 配置并重启」按钮** — 需要能访问到设备
+
+两者都是清空 NVS 凭据后重启，回到配网热点。
+
+### HTTP 接口
+
+配网模式（AP，`192.168.4.1`）：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/` | 配网页（内嵌在固件里） |
+| GET | `/api/scan` | 扫描周边网络 → JSON |
+| POST | `/api/save` | 提交凭据，触发连接验证 |
+| GET | `/api/status` | 轮询连接进度 |
+
+STA 模式：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/*` | SPIFFS 静态文件，`/` → `index.html` |
+| GET | `/api/status` | 设备状态 JSON |
+| POST | `/api/reset` | 清凭据并重启 |
+
 ## 构建与烧录
 
 ```bash
 pio run              # 编译
-pio run -t upload    # 烧录
+pio run -t upload    # 烧录固件
 pio device monitor   # 串口日志，115200
 ```
+
+`www/` 目录下的静态页面单独烧到 SPIFFS 分区，**改了 www 只需重跑这两步**，不用重刷固件：
+
+```bash
+pio run -t buildfs   # 打包 www/ 成 spiffs.bin
+pio run -t uploadfs  # 烧到 storage 分区
+```
+
+首次烧录建议两步都做。配网页是编进固件的，所以**即使没跑过 `uploadfs` 也能正常配网**——
+只是配完后访问 IP 会看到一个提示你去执行 `uploadfs` 的 404 页。
 
 ## 画面说明
 
@@ -124,11 +211,18 @@ pio device monitor   # 串口日志，115200
 | `src/epd_ssd1675a.c/.h` | 屏幕驱动：SPI + GPIO 初始化、复位、LUT、RAM 寻址、全刷、深度睡眠 |
 | `src/epd_gfx.c/.h`      | 图形层：DMA 帧缓冲、旋转 + 可视区偏移映射、点/线/矩形/圆/文字 |
 | `src/font5x7.h`         | 5×7 点阵 ASCII 字库（0x20–0x7E） |
+| `src/screens.c/.h`      | 所有墨水屏页面：标定图、配网提示、连接成功、连接失败 |
 | `src/board_led.c/.h`    | 板载 WS2812 呼吸灯（后台任务，二次曲线缓动） |
-| `src/main.c`            | 自检流程：起呼吸灯、组装标定画面、刷新一次 |
-| `src/idf_component.yml` | 声明 `espressif/led_strip` 依赖，由 component manager 拉取 |
+| `src/board_button.c/.h` | BOOT 按钮长按 3s 清除 WiFi 凭据 |
+| `src/wifi_prov.c/.h`    | 凭据 NVS 读写、AP/STA 模式、连接验证、退避重连 |
+| `src/web_portal.c/.h`   | httpd：配网接口 + SPIFFS 静态文件服务 |
+| `src/storage.c/.h`      | SPIFFS 挂载 |
+| `src/main.c`            | 编排：自检 → NVS → 挂载 → 按键监听 → 配网或连接 |
+| `portal/portal.html`    | 配网页，编进固件（不依赖 SPIFFS） |
+| `www/index.html`        | 设备状态页，烧到 SPIFFS |
+| `src/idf_component.yml` | 声明 `led_strip` / `cjson` 依赖，由 component manager 拉取 |
 
-两点约定：
+三点约定：
 
 - 帧缓冲 **bit = 1 表示白色**，直接写入 RAM 命令 `0x24`，不做取反
 - `gfx_pixel()` 一次完成 90° 旋转和可视区平移：
@@ -140,10 +234,38 @@ pio device monitor   # 串口日志，115200
 
   即把横向 212 × 104 的**可视区逻辑坐标**映射到竖向 122 × 250 的物理 RAM。
   越界的点直接丢弃，所以画到可视区外不会绕行到别的位置。
+- 所有动态数据走 `/api/*` 返回 **JSON**，前端一律用 `textContent` 渲染，
+  不做 HTML 字符串拼接。SSID 是用户可控输入，带引号或尖括号都不会破页面
 
 刷新流程：`0x74/0x7E` 模拟与数字模块控制 → `0x01` 驱动输出 → 电压/时序寄存器 →
 `0x32` 写全刷 LUT → `0x22/0x20` 上电 → `0x24` 与 `0x26` 双缓冲写同一帧 →
 `0x22 0xC4` + `0x20` 触发刷新 → `0x10` 进入深度睡眠。BUSY 高电平为忙，超时 30s。
+
+### 分区表
+
+`partitions16.csv`（16MB）：
+
+| 分区 | 类型 | 偏移 | 大小 | 用途 |
+| --- | --- | --- | --- | --- |
+| `nvs` | data/nvs | 0x9000 | 24KB | WiFi 凭据 + 驱动自用 |
+| `phy_init` | data/phy | 0xf000 | 4KB | 射频校准 |
+| `factory` | app | 0x10000 | 4MB | 固件（当前用 21%） |
+| `storage` | data/spiffs | 0x410000 | 4MB | `www/` 静态文件 |
+
+改动分区表后**必须完整 `pio run -t upload`**（含分区表），只刷 app 会错位。
+`nvs` 偏移保持在 0x9000 不变，所以升级不会丢已保存的 WiFi。
+
+### 配网页为何编进固件
+
+`portal/portal.html` 通过 `board_build.embed_txtfiles` + CMake 的 `EMBED_TXTFILES`
+编入 `.rodata`，而不是放 SPIFFS。原因是新板子刷完固件时 SPIFFS 还是空的，
+如果配网页也依赖 SPIFFS，就会「进不了配网页 → 连不上网 → 没法上传文件」形成死锁。
+
+这两个机制必须**同时**配置：PlatformIO 的 shim 负责生成 `.S` 汇编文件，
+CMake 的 `EMBED_TXTFILES` 负责把它声明为源文件并链接。只配任何一个都会失败——
+只配 PIO 侧会 `undefined reference to _binary_portal_html_start`；
+只配 CMake 侧会 `Source portal.html.S not found`（PlatformIO 只用 CMake 做配置、
+自己用 SCons 编译，从不执行 ninja 的自定义 target）。
 
 ## 参考
 

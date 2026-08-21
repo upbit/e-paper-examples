@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ePaper 设备状态</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f5f7; --card:#fff; --fg:#1a1d21; --muted:#6b7280;
+  --line:#e3e6ea; --accent:#2563eb;
+  --ok:#0f7b3e; --ok-bg:#e7f6ed; --warn:#8a5a00; --warn-bg:#fdf3e2;
+  --err:#b3261e; --err-bg:#fdecea;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#15181c; --card:#1e2227; --fg:#e8eaed; --muted:#9aa3ad;
+    --line:#2e343b; --accent:#4b8bf5;
+    --ok:#5cc98b; --ok-bg:#16301f; --warn:#e0b062; --warn-bg:#332814;
+    --err:#f2857c; --err-bg:#331a18;
+  }
+}
+body{
+  background:var(--bg); color:var(--fg); min-height:100vh; padding:24px 16px;
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+}
+.wrap{max-width:520px;margin:0 auto}
+header{text-align:center;margin-bottom:20px}
+h1{font-size:20px;font-weight:650;letter-spacing:-.01em}
+.pill{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:4px 11px;
+  border-radius:999px;background:var(--ok-bg);color:var(--ok);font-size:12.5px;font-weight:600}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.card+.card{margin-top:14px}
+.card h2{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.05em;padding:14px 16px 0}
+dl{padding:6px 16px 14px}
+.item{display:flex;align-items:baseline;justify-content:space-between;gap:14px;
+  padding:9px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+dt{color:var(--muted);font-size:13.5px;flex-shrink:0}
+dd{font-weight:550;text-align:right;word-break:break-all;
+  font-variant-numeric:tabular-nums}
+dd.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px}
+.sig{display:inline-flex;align-items:center;gap:7px}
+.bars{display:flex;align-items:flex-end;gap:2px;height:12px}
+.bars i{width:3px;background:var(--line);border-radius:1px}
+.bars i:nth-child(1){height:25%}.bars i:nth-child(2){height:50%}
+.bars i:nth-child(3){height:75%}.bars i:nth-child(4){height:100%}
+.bars i.on{background:var(--accent)}
+.danger{padding:16px}
+.danger p{color:var(--muted);font-size:13px;margin-bottom:11px}
+.btn{width:100%;padding:12px;border:1px solid var(--err);border-radius:10px;
+  background:none;color:var(--err);font:inherit;font-weight:600;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:default}
+.msg{margin-top:12px;padding:11px 13px;border-radius:10px;font-size:13.5px;display:none}
+.msg.show{display:block}
+.msg.warn{background:var(--warn-bg);color:var(--warn)}
+.msg.err{background:var(--err-bg);color:var(--err)}
+footer{text-align:center;color:var(--muted);font-size:12px;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>ePaper 设备状态</h1>
+    <span class="pill"><span class="dot"></span><span id="pill">已连接</span></span>
+  </header>
+
+  <div class="card">
+    <h2>网络</h2>
+    <dl>
+      <div class="item"><dt>IP 地址</dt><dd class="mono" id="ip">—</dd></div>
+      <div class="item"><dt>WiFi 名称</dt><dd id="ssid">—</dd></div>
+      <div class="item"><dt>信号强度</dt><dd><span class="sig"><span id="rssi">—</span><span class="bars" id="bars"><i></i><i></i><i></i><i></i></span></span></dd></div>
+      <div class="item"><dt>MAC 地址</dt><dd class="mono" id="mac">—</dd></div>
+    </dl>
+  </div>
+
+  <div class="card">
+    <h2>设备</h2>
+    <dl>
+      <div class="item"><dt>运行时长</dt><dd id="uptime">—</dd></div>
+      <div class="item"><dt>可用内存</dt><dd id="heap">—</dd></div>
+      <div class="item"><dt>屏幕</dt><dd id="panel">—</dd></div>
+      <div class="item"><dt>主控</dt><dd id="chip">—</dd></div>
+    </dl>
+  </div>
+
+  <div class="card">
+    <h2>重新配网</h2>
+    <div class="danger">
+      <p>清除已保存的 WiFi 凭据并重启设备，重启后会开启配网热点。</p>
+      <button class="btn" id="reset" type="button">清除 WiFi 配置并重启</button>
+      <div class="msg" id="msg"></div>
+    </div>
+  </div>
+
+  <footer>此页面由设备 SPIFFS 分区上的 www/index.html 提供</footer>
+</div>
+
+<script>
+var $=function(id){return document.getElementById(id)};
+
+function fmtUptime(s){
+  s=Math.floor(s||0);
+  var d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  if(d)return d+' 天 '+h+' 小时';
+  if(h)return h+' 小时 '+m+' 分';
+  if(m)return m+' 分 '+(s%60)+' 秒';
+  return s+' 秒';
+}
+function fmtBytes(b){
+  if(!b)return '—';
+  return b>=1048576?(b/1048576).toFixed(2)+' MB':(b/1024).toFixed(1)+' KB';
+}
+function setBars(rssi){
+  var n=rssi>=-55?4:rssi>=-67?3:rssi>=-78?2:1;
+  var kids=$('bars').children;
+  for(var i=0;i<4;i++)kids[i].className=i<n?'on':'';
+}
+
+function load(){
+  fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+    $('ip').textContent=d.ip||'—';
+    $('ssid').textContent=d.ssid||'—';
+    $('mac').textContent=d.mac||'—';
+    $('rssi').textContent=d.rssi?d.rssi+' dBm':'—';
+    if(d.rssi)setBars(d.rssi);
+    $('uptime').textContent=fmtUptime(d.uptime);
+    $('heap').textContent=fmtBytes(d.heap);
+    $('panel').textContent=d.panel||'—';
+    $('chip').textContent=d.chip||'—';
+  }).catch(function(){
+    $('pill').textContent='读取失败';
+  });
+}
+
+$('reset').onclick=function(){
+  if(!confirm('确定要清除 WiFi 配置吗？\n设备将重启并开启配网热点。'))return;
+  var btn=this,msg=$('msg');
+  btn.disabled=true;
+  msg.className='msg show warn';
+  msg.textContent='正在清除配置并重启，请稍候…';
+  fetch('/api/reset',{method:'POST'}).then(function(){
+    msg.textContent='已清除。设备正在重启，请查看屏幕上的配网热点名称。';
+  }).catch(function(){
+    msg.className='msg show err';
+    msg.textContent='请求失败，请重试或长按 BOOT 按钮 3 秒。';
+    btn.disabled=false;
+  });
+};
+
+load();
+setInterval(load,10000);
+</script>
+</body>
+</html>
