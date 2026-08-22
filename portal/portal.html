@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ePaper WiFi 配置</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f5f7; --card:#fff; --fg:#1a1d21; --muted:#6b7280;
+  --line:#e3e6ea; --accent:#2563eb; --accent-fg:#fff;
+  --ok:#0f7b3e; --ok-bg:#e7f6ed; --err:#b3261e; --err-bg:#fdecea;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#15181c; --card:#1e2227; --fg:#e8eaed; --muted:#9aa3ad;
+    --line:#2e343b; --accent:#4b8bf5;
+    --ok:#5cc98b; --ok-bg:#16301f; --err:#f2857c; --err-bg:#331a18;
+  }
+}
+body{
+  background:var(--bg); color:var(--fg); min-height:100vh;
+  font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+  display:flex; align-items:center; justify-content:center; padding:20px 16px;
+}
+.wrap{width:100%;max-width:430px}
+.brand{text-align:center;margin-bottom:18px}
+.brand h1{font-size:19px;font-weight:650;letter-spacing:-.01em}
+.brand p{color:var(--muted);font-size:13px;margin-top:3px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+.row{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.btn-link{background:none;border:0;color:var(--accent);font:inherit;font-size:13px;cursor:pointer;padding:4px 6px;border-radius:6px}
+.btn-link:disabled{color:var(--muted);cursor:default}
+.list{border:1px solid var(--line);border-radius:10px;overflow:hidden;max-height:210px;overflow-y:auto}
+.ap{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;border-bottom:1px solid var(--line);
+  padding:11px 12px;font:inherit;color:var(--fg);cursor:pointer;text-align:left}
+.ap:last-child{border-bottom:0}
+.ap[aria-selected=true]{background:color-mix(in srgb,var(--accent) 13%,transparent)}
+.ap .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap .meta{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px;flex-shrink:0}
+.bars{display:flex;align-items:flex-end;gap:2px;height:13px}
+.bars i{width:3px;background:var(--line);border-radius:1px}
+.bars i:nth-child(1){height:25%}.bars i:nth-child(2){height:50%}
+.bars i:nth-child(3){height:75%}.bars i:nth-child(4){height:100%}
+.bars i.on{background:var(--accent)}
+.empty{padding:22px 12px;text-align:center;color:var(--muted);font-size:13px}
+.field{margin-top:14px}
+.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+input{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;
+  background:var(--bg);color:var(--fg);font:inherit}
+input:focus{outline:2px solid color-mix(in srgb,var(--accent) 45%,transparent);outline-offset:-1px;border-color:var(--accent)}
+.pw{position:relative}
+.pw input{padding-right:62px}
+.pw button{position:absolute;right:5px;top:50%;transform:translateY(-50%);
+  background:none;border:0;color:var(--accent);font:inherit;font-size:12px;cursor:pointer;padding:6px 8px}
+.submit{width:100%;margin-top:18px;padding:13px;border:0;border-radius:10px;
+  background:var(--accent);color:var(--accent-fg);font:inherit;font-weight:600;cursor:pointer}
+.submit:disabled{opacity:.55;cursor:default}
+.msg{margin-top:14px;padding:11px 13px;border-radius:10px;font-size:13.5px;display:none;align-items:center;gap:9px}
+.msg.show{display:flex}
+.msg.ok{background:var(--ok-bg);color:var(--ok)}
+.msg.err{background:var(--err-bg);color:var(--err)}
+.spin{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;
+  border-radius:50%;animation:sp .7s linear infinite;flex-shrink:0}
+@keyframes sp{to{transform:rotate(360deg)}}
+.foot{text-align:center;color:var(--muted);font-size:12px;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <h1>ePaper 网络配置</h1>
+    <p>选择要连接的 WiFi 网络</p>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span class="label">附近的网络</span>
+      <button class="btn-link" id="rescan" type="button">重新扫描</button>
+    </div>
+    <div class="list" id="list"><div class="empty">正在扫描…</div></div>
+
+    <div class="field">
+      <label for="ssid">网络名称 (SSID)</label>
+      <input id="ssid" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="点击上方列表，或手动输入">
+    </div>
+
+    <div class="field">
+      <label for="pass">密码</label>
+      <div class="pw">
+        <input id="pass" type="password" autocomplete="off" placeholder="开放网络可留空">
+        <button type="button" id="toggle">显示</button>
+      </div>
+    </div>
+
+    <button class="submit" id="save" type="button">保存并连接</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <p class="foot">配置成功后设备将自动重启并连接该网络</p>
+</div>
+
+<script>
+var $=function(id){return document.getElementById(id)};
+var list=$('list'),ssid=$('ssid'),pass=$('pass'),save=$('save'),msg=$('msg'),rescan=$('rescan');
+
+function show(kind,text,spinning){
+  msg.className='msg show '+kind;
+  msg.textContent='';
+  if(spinning){var s=document.createElement('span');s.className='spin';msg.appendChild(s)}
+  var t=document.createElement('span');t.textContent=text;msg.appendChild(t);
+}
+function hide(){msg.className='msg'}
+
+function bars(rssi){
+  var n=rssi>=-55?4:rssi>=-67?3:rssi>=-78?2:1;
+  var b=document.createElement('span');b.className='bars';
+  for(var i=1;i<=4;i++){var x=document.createElement('i');if(i<=n)x.className='on';b.appendChild(x)}
+  return b;
+}
+
+function render(nets){
+  list.textContent='';
+  if(!nets||!nets.length){
+    var e=document.createElement('div');e.className='empty';
+    e.textContent='未发现网络，请重新扫描';list.appendChild(e);return;
+  }
+  nets.forEach(function(n){
+    var row=document.createElement('button');
+    row.type='button';row.className='ap';row.setAttribute('aria-selected','false');
+    var nm=document.createElement('span');nm.className='nm';nm.textContent=n.ssid;
+    var meta=document.createElement('span');meta.className='meta';
+    var lock=document.createElement('span');lock.textContent=n.secure?'🔒':'🔓';
+    meta.appendChild(lock);meta.appendChild(bars(n.rssi));
+    row.appendChild(nm);row.appendChild(meta);
+    row.onclick=function(){
+      ssid.value=n.ssid;
+      Array.prototype.forEach.call(list.children,function(c){c.setAttribute('aria-selected','false')});
+      row.setAttribute('aria-selected','true');
+      (n.secure?pass:save).focus();
+    };
+    list.appendChild(row);
+  });
+}
+
+function scan(){
+  rescan.disabled=true;
+  list.textContent='';
+  var e=document.createElement('div');e.className='empty';e.textContent='正在扫描…';list.appendChild(e);
+  fetch('/api/scan').then(function(r){return r.json()}).then(function(d){
+    render(d.networks);rescan.disabled=false;
+  }).catch(function(){
+    list.textContent='';
+    var x=document.createElement('div');x.className='empty';x.textContent='扫描失败，请重试';
+    list.appendChild(x);rescan.disabled=false;
+  });
+}
+
+function poll(){
+  fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+    if(d.state==='connected'){
+      show('ok','已连接！IP '+d.ip+'，设备即将重启…',false);
+      return;
+    }
+    if(d.state==='failed'){
+      show('err',d.reason||'连接失败，请检查密码',false);
+      save.disabled=false;return;
+    }
+    setTimeout(poll,1000);
+  }).catch(function(){setTimeout(poll,1500)});
+}
+
+save.onclick=function(){
+  var s=ssid.value.trim();
+  if(!s){show('err','请先选择或输入网络名称',false);ssid.focus();return}
+  save.disabled=true;
+  show('ok','正在连接 "'+s+'"…',true);
+  fetch('/api/save',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ssid:s,pass:pass.value})
+  }).then(function(r){return r.json()}).then(function(d){
+    if(d.error){show('err',d.error,false);save.disabled=false;return}
+    setTimeout(poll,1200);
+  }).catch(function(){
+    show('err','请求失败，请重试',false);save.disabled=false;
+  });
+};
+
+$('toggle').onclick=function(){
+  var hidden=pass.type==='password';
+  pass.type=hidden?'text':'password';
+  this.textContent=hidden?'隐藏':'显示';
+};
+ssid.oninput=hide;
+pass.onkeydown=function(e){if(e.key==='Enter')save.click()};
+scan();
+</script>
+</body>
+</html>

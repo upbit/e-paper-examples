@@ -9,6 +9,7 @@ secrets.ini
 sdkconfig
 sdkconfig.old
 sdkconfig.defaults
+sdkconfig.esp32-s3-devkitc-1
 build/
 
 # IDE
